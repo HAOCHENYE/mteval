@@ -5,24 +5,35 @@ import threading
 import json
 from time import sleep
 from typing import List, Dict
-from openai.error import (
-    RateLimitError,
-    APIError,
-    APIConnectionError,
-    Timeout,
-    AuthenticationError,
-    ServiceUnavailableError,
-    InvalidRequestError,
-)
 from transformers import GPT2Tokenizer
 import logging
 import json
 import random
 import threading
 from time import sleep, time
+from openai import OpenAI, AzureOpenAI
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+server_mapping = {
+    'S_Ampere_7B_TEMP_sampled_mt_logits_1994_hf': OpenAI(base_url='http://10.140.1.168:23335/v1', api_key='EMPTY'),
+    'S_Ampere_7B_TEMP_sampled_mt_logits_random_1994_hf': OpenAI(base_url='http://10.140.1.168:23334/v1', api_key='EMPTY'),
+    'S_Ampere_7B_TEMP_sampled_mt_random_1994_hf': OpenAI(base_url='http://10.140.1.168:23339/v1', api_key='EMPTY'),
+    'S_Ampere_7B_TEMP_sampled_mt_logits_reversed_1994_hf': OpenAI(base_url='http://10.140.1.168:23338/v1', api_key='EMPTY'),
+    'S_Ampere_7B_TEMP_sampled_mt_logits_ts_4_1994_new_hf': OpenAI(base_url='http://10.140.1.168:23337/v1', api_key='EMPTY'),
+    'S_Ampere_7B_TEMP_sampled_mt_logits_ts_4_1994_hf': OpenAI(base_url='http://10.140.1.168:23336/v1', api_key='EMPTY'),
+    'S_Ampere_7B_TEMP_sampled_mt_random_guided_logits_hf': OpenAI(base_url='http://10.140.1.168:23340/v1', api_key='EMPTY'),
+}
+
+
+
+gpt4_client = AzureOpenAI(
+    azure_endpoint='https://group-ck.openai.azure.com',
+    api_key='3c3640c38eeb477192ad99b96fce26b4',
+    api_version='2024-02-01'
+)
 
 
 class KeyPool:
@@ -130,10 +141,10 @@ class KeyPool:
 
 def create_generate():
     folder = os.path.dirname(os.path.abspath(__file__))
-    keypool = KeyPool(
-        accounts_list_path=os.path.join(folder, "api_keys.json"),
-        verbose=False,
-    )
+    # keypool = KeyPool(
+    #     accounts_list_path=os.path.join(folder, "api_keys.json"),
+    #     verbose=False,
+    # )
 
     def generate(
         model_name: str,
@@ -153,19 +164,13 @@ def create_generate():
         model = model_name
         trial = 20
         for i in range(trial):
-            key = keypool.pop()
-            while key == "":
-                logger.debug("No key is ready. Retry after 5 seconds.")
-                sleep(5)
-                key = keypool.pop()
-
-            logger.debug(f"Using {key} as api key.")
             try:
                 start_time = time()
                 used_time = None
-                if  "gpt-3.5" in model or "gpt-4" in model:
-                    completion = openai.ChatCompletion.create(
-                        model=model,
+                if model_name in server_mapping.keys():
+                    client = server_mapping[model_name]
+                    completion = client.chat.completions.create(
+                        model='internlm2-chat',
                         messages=[{"role": "user", "content": prompt}]
                         if prompt
                         else messages,
@@ -173,48 +178,25 @@ def create_generate():
                         temperature=temperature,
                         seed=seed,
                         top_p=top_p,
-                        api_key=key,
-                        stop=end_tokens,
                     )
                 else:
-                    completion = openai.Completion.create(
-                        model=model,
-                        prompt=prompt,
+                    if isinstance(prompt, str) and prompt:
+                        messages = [{"role": "user", "content": prompt}]
+                    completion = gpt4_client.chat.completions.create(
+                        messages=messages,
                         max_tokens=max_tokens,
+                        model='CK1',
                         temperature=temperature,
                         top_p=top_p,
-                        api_key=key,
+                        seed=seed,
                     )
-            except (
-                APIConnectionError,
-                RateLimitError,
-                APIError,
-                Timeout,
-                AuthenticationError,
-                ServiceUnavailableError,
-                InvalidRequestError,
-            ) as e:
-                keypool.block(key, 5)
-                logger.exception(
-                    f"{key} has error {e.__class__.__name__}. Block it for 5"
-                    " seconds."
-                )
-                sleep(1)
             except Exception as e:
-                keypool.free(key)
-                logger.debug(f"Free {key}.")
                 raise e
             else:
-                prompt_len = completion["usage"]["prompt_tokens"]
-                num_output_tokens = completion["usage"]["completion_tokens"]
+                prompt_len = completion.usage.prompt_tokens
+                num_output_tokens = completion.usage.completion_tokens
                 used_time = time() - start_time
-                if model in ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4"]:
-                    resp = completion["choices"][0]["message"]["content"]
-                else:
-                    resp = completion["choices"][0]["text"]
-                keypool.free(key)
-                logger.debug(f"Free {key}.")
-                sleep(0.5)
+                resp = completion.choices[0].message.content
                 return resp, prompt_len, num_output_tokens / used_time
         raise Exception(f"Tried for {trial} trials but all failed.")
 

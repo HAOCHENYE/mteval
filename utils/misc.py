@@ -1,9 +1,14 @@
 import logging
 import os
+
 from fastchat.conversation import (
     SeparatorStyle,
     get_conv_template,
 )
+# SeparatorStyle = None
+# get_conv_template = lambda *args, **kwargs: None
+
+
 from logging.handlers import RotatingFileHandler
 
 

@@ -14,15 +14,15 @@ from utils.openai_generate import generate
 
 OUTPUT_FOLDER = "output"
 TASK_NAMES = [
-    "refinement_single",
+    # "refinement_single",
     "refinement_multi",
-    "refinement_multi_gold",
-    "expansion_single",
+    # "refinement_multi_gold",
+    # "expansion_single",
     "expansion_multi",
-    "expansion_multi_gold",
-    "follow-up_single",
+    # "expansion_multi_gold",
+    # "follow-up_single",
     "follow-up_multi",
-    "follow-up_multi_gold",
+    # "follow-up_multi_gold",
 ]
 DOCUMENTS = [json.loads(row) for row in open("raw_data/documents.jsonl")]
 JUDGE_MODEL = "gpt-4-0613"
@@ -132,7 +132,7 @@ def evaluate_refinement_single(filename: str):
     )
 
 
-def evaluate_refinement_multi(filename: str):
+def evaluate_refinement_multi(filename: str, model_name: str):
     prompt_template = open("prompts/refinement_multi_evaluation.txt").read()
     model = filename.split("_")[-1].split(".")[0]
     data = [json.loads(row) for row in open(filename)]
@@ -141,7 +141,7 @@ def evaluate_refinement_multi(filename: str):
     )
     visited_ids = set()
     out_filename = os.path.join(
-        EVALUATION_OUTPUT, "refinement", os.path.split(filename)[-1]
+        EVALUATION_OUTPUT, model_name, "refinement", os.path.split(filename)[-1]
     )
 
     os.makedirs(os.path.dirname(out_filename), exist_ok=True)
@@ -241,7 +241,7 @@ def evaluate_refinement_multi(filename: str):
     )
 
 
-def evaluate_follow_up_multi(filename: str):
+def evaluate_follow_up_multi(filename: str, model_name: str):
     prompt_template = open("prompts/mt-bench_evaluation.txt").read()
     model = filename.split("_")[-1].split(".")[0]
     data = [json.loads(row) for row in open(filename)]
@@ -253,7 +253,7 @@ def evaluate_follow_up_multi(filename: str):
     )
     visited_ids = set()
     out_filename = os.path.join(
-        EVALUATION_OUTPUT, "follow-up", os.path.split(filename)[-1]
+        EVALUATION_OUTPUT, model_name, "follow-up", os.path.split(filename)[-1]
     )
 
     os.makedirs(os.path.dirname(out_filename), exist_ok=True)
@@ -339,7 +339,7 @@ def evaluate_follow_up_multi(filename: str):
     )
 
 
-def evaluate_expansion(filename: str, mode: Literal["single", "multi"]):
+def evaluate_expansion(filename: str, mode: Literal["single", "multi"], model_name: str):
     prompt_template = open("prompts/expansion_evaluation.txt").read()
     data = [json.loads(row) for row in open(filename)]
     model = filename.split("_")[-1].split(".")[0]
@@ -352,7 +352,7 @@ def evaluate_expansion(filename: str, mode: Literal["single", "multi"]):
     )
     visited_ids = set()
     out_filename = os.path.join(
-        EVALUATION_OUTPUT, "expansion", os.path.split(filename)[-1]
+        EVALUATION_OUTPUT, model_name, "expansion", os.path.split(filename)[-1]
     )
 
     os.makedirs(os.path.dirname(out_filename), exist_ok=True)
@@ -678,23 +678,23 @@ def main(
             )
         task_type, task_subtype = task_name.split("_", 1)
         filename = os.path.join(
-            INFERENCE_OUTPUT, task_type, f"{task_subtype}_{model_name}.jsonl"
+            INFERENCE_OUTPUT, model_name, task_type, f"{task_subtype}.jsonl"
         )
         if not os.path.exists(filename):
             continue
         if task_name in ["refinement_multi", "refinement_multi_gold"]:
             # GPT-4 Turn Evaluation Multi Inst
-            evaluate_refinement_multi(filename)
+            evaluate_refinement_multi(filename, model_name)
         elif task_name == "refinement_single":
             evaluate_refinement_single(
                 filename
             )  # GPT-4 Single Turn Evalaution
         elif task_name in ["follow-up_multi", "follow-up_gold"]:
-            evaluate_follow_up_multi(filename)  # MT-Bench-Autoregressive
+            evaluate_follow_up_multi(filename, model_name)  # MT-Bench-Autoregressive
         elif task_name in ["follow-up_single"]:
             evaluate_follow_up_single(filename)  # MT-Bench-Single Evaluation
         elif task_name in ["expansion_multi", "expansion_multi_gold"]:
-            evaluate_expansion(filename, "multi")  # MT-Bench-Autoregressive
+            evaluate_expansion(filename, "multi", model_name)  # MT-Bench-Autoregressive
         elif task_name in ["expansion_single"]:
             evaluate_expansion(
                 filename, "single"

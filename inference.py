@@ -3,6 +3,7 @@ import json
 import torch
 import numpy as np
 import importlib.util
+from threading import Thread
 
 from copy import deepcopy
 from transformers import (
@@ -16,7 +17,7 @@ from datasets import load_dataset
 from strictfire import StrictFire
 from tqdm import tqdm
 from utils.misc import get_logger, config
-from utils.openai_generate import generate
+from utils.openai_generate import generate, server_mapping
 from utils.constants import INFERENCE_OUTPUT
 from typing import Dict, Any, List, Literal
 from time import time
@@ -29,6 +30,7 @@ if spec is None:
 
 SEED = 111
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+multi_tasks = ['expansion_multi', 'follow-up_multi', 'refinement_multi', 'recollection_multi_global-inst']
 
 
 class StoppingCriteriaSub(StoppingCriteria):
@@ -81,23 +83,8 @@ def llama_generate(
 
 
 def main(
-    model_name: str,
-    task_name: Literal[
-        "refinement_single",
-        "refinement_multi",
-        "expansion_single",
-        "expansion_multi",
-        "follow-up_single",
-        "follow-up_multi",
-        "recollection_single_cls",
-        "recollection_multiple_cls",
-        "recollection_single_global-inst",
-        "recollection_multi_global-inst",
-        "cls_ablation_gold",
-        "cls_ablation_dgc",
-        "cls_ablation_sgc",
-        "cls_ablation_rc",
-    ],
+    model_name,
+    task_name,
     conv_key: str = "conv",
     system_message: str = "You are a helpful, respectful and honest assistant.",
     output_key: str = "gen_resp",
@@ -131,8 +118,9 @@ def main(
     else:
         out_filename = os.path.join(
             INFERENCE_OUTPUT,
+            model_name,
             task_type,
-            f"{task_subtype}_{model_name}.jsonl",
+            f"{task_subtype}.jsonl",
         )
     logger = get_logger(
         name=__name__,
@@ -145,9 +133,9 @@ def main(
         maxBytes=10000000,
     )
 
-    if not end_tokens:
-        end_tokens = config[model_name]["end_tokens"]
-        logger.info(f"Changed end_tokens to {end_tokens}")
+    # if not end_tokens:
+    #     end_tokens = config[model_name]["end_tokens"]
+    #     logger.info(f"Changed end_tokens to {end_tokens}")
     if "ablation" in task_name:
         data = [
             json.loads(row)
@@ -187,45 +175,6 @@ def main(
         logger.info(f"Resumed {matched} instances from {out_filename}.")
 
     os.makedirs(os.path.dirname(out_filename), exist_ok=True)
-    use_openai = False
-    model_path = config[model_name]["path"]
-    if "gpt-3.5" in model_name or "gpt-4" in model_name:
-        use_openai = True
-    else:
-        use_flash = config[model_name]["use_flash_attn"] and FLASH_AVAILABLE
-        if use_flash:
-            logger.info("Using flash attention2.")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            device_map="auto",
-            load_in_8bit=load_8bit,
-            torch_dtype=torch.float16,
-            trust_remote_code=True,
-            attn_implementation="flash_attention_2" if use_flash else None,
-            **load_model_args,
-        )
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_path, trust_remote_code=True
-        )
-        tokenizer.padding_side = "left"
-        try:
-            tokenizer.pad_token_id = tokenizer.eos_token_id
-        except AttributeError as e:
-            logger.info(e)
-            logger.info(
-                "Can't set the tokenizer.pad_token_id but it's probably"
-                " ok if the model is chatglm."
-            )
-        generation_config = GenerationConfig(
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            max_new_tokens=max_new_tokens,
-            bos_token_id=tokenizer.bos_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            pad_token_id=tokenizer.pad_token_id,
-            do_sample=do_sample,
-        )
     logger.info(f"loaded model `{model_name}`")
     if n_forward > 0:
         logger.info(f"Only inference on the first {n_forward} examples.")
@@ -236,10 +185,7 @@ def main(
     token_per_second_list = []
     for i, row in enumerate(data):
         # create prompt
-        if use_openai:
-            conv = deepcopy(config["gpt-4"]["chat_template"])
-        else:
-            conv = deepcopy(config[model_name]["chat_template"])
+        conv = deepcopy(config["gpt-4"]["chat_template"])
         if system_message:
             conv.set_system_message(system_message)
         for turn in row[conv_key]:
@@ -256,30 +202,15 @@ def main(
             conv.update_last_message(None)
             prompt = conv.get_prompt()
             error_occured = False
-            if use_openai:
-                resp, prompt_len, token_per_second = generate(
-                    model_name=model_name,
-                    prompt="",
-                    messages=conv.to_openai_api_messages(),
-                    temperature=temperature,
-                    top_p=top_p,
-                    end_tokens=end_tokens,
-                    max_tokens=max_new_tokens,
-                )
-                token_per_second_list.append(token_per_second)
-            else:
-                try:
-                    resp, prompt_len, token_per_second = llama_generate(
-                        prompt=prompt,
-                        model=model,
-                        tokenizer=tokenizer,
-                        generation_config=generation_config,
-                        end_tokens=end_tokens,
-                    )
-                    token_per_second_list.append(token_per_second)
-                except Exception as e:
-                    error_occured = True
-                    logger.exception(f"Error occured at {i}.")
+            resp, prompt_len, token_per_second = generate(
+                model_name=model_name,
+                prompt="",
+                messages=conv.to_openai_api_messages(),
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_new_tokens,
+            )
+            token_per_second_list.append(token_per_second)
             if not print_first_prompt and not error_occured:
                 tqdm.write(prompt)
                 tqdm.write(resp)
@@ -316,4 +247,18 @@ def main(
 
 
 if __name__ == "__main__":
-    StrictFire(main)
+    threads = []
+    for model_name in server_mapping:
+        for task_name in multi_tasks:
+            thread = Thread(
+                target=main,
+                kwargs=dict(
+                    model_name=model_name,
+                    task_name=task_name,
+                ),
+            )
+            threads.append(thread)
+            thread.start()
+    for thread in threads:
+        thread.join()
+
