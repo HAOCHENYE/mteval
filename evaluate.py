@@ -221,7 +221,7 @@ def evaluate_refinement_multi(filename: str, model_name: str):
             n_evaluate += 1
             pbar.update(1)
             visited_ids.add(_id)
-            if len(outputs) % 10 == 0:
+            if len(outputs) % 1 == 0:
                 with open(out_filename, "w", encoding="utf-8") as f:
                     f.write(
                         "\n".join([

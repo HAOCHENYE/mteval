@@ -17,23 +17,30 @@ from openai import OpenAI, AzureOpenAI
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-server_mapping = {
-    'S_Ampere_7B_TEMP_sampled_mt_logits_1994_hf': OpenAI(base_url='http://10.140.1.168:23335/v1', api_key='EMPTY'),
-    'S_Ampere_7B_TEMP_sampled_mt_logits_random_1994_hf': OpenAI(base_url='http://10.140.1.168:23334/v1', api_key='EMPTY'),
-    'S_Ampere_7B_TEMP_sampled_mt_random_1994_hf': OpenAI(base_url='http://10.140.1.168:23339/v1', api_key='EMPTY'),
-    'S_Ampere_7B_TEMP_sampled_mt_logits_reversed_1994_hf': OpenAI(base_url='http://10.140.1.168:23338/v1', api_key='EMPTY'),
-    'S_Ampere_7B_TEMP_sampled_mt_logits_ts_4_1994_new_hf': OpenAI(base_url='http://10.140.1.168:23337/v1', api_key='EMPTY'),
-    'S_Ampere_7B_TEMP_sampled_mt_logits_ts_4_1994_hf': OpenAI(base_url='http://10.140.1.168:23336/v1', api_key='EMPTY'),
-    'S_Ampere_7B_TEMP_sampled_mt_random_guided_logits_hf': OpenAI(base_url='http://10.140.1.168:23340/v1', api_key='EMPTY'),
-}
+# server_mapping = {
+#     'S_Ampere_7B_TEMP_sampled_mt_logits_1994_hf': OpenAI(base_url='http://10.140.1.168:23335/v1', api_key='EMPTY'),
+#     'S_Ampere_7B_TEMP_sampled_mt_logits_random_1994_hf': OpenAI(base_url='http://10.140.1.168:23334/v1', api_key='EMPTY'),
+#     'S_Ampere_7B_TEMP_sampled_mt_random_1994_hf': OpenAI(base_url='http://10.140.1.168:23339/v1', api_key='EMPTY'),
+#     'S_Ampere_7B_TEMP_sampled_mt_logits_reversed_1994_hf': OpenAI(base_url='http://10.140.1.168:23338/v1', api_key='EMPTY'),
+#     'S_Ampere_7B_TEMP_sampled_mt_logits_ts_4_1994_new_hf': OpenAI(base_url='http://10.140.1.168:23337/v1', api_key='EMPTY'),
+#     'S_Ampere_7B_TEMP_sampled_mt_logits_ts_4_1994_hf': OpenAI(base_url='http://10.140.1.168:23336/v1', api_key='EMPTY'),
+#     'S_Ampere_7B_TEMP_sampled_mt_random_guided_logits_hf': OpenAI(base_url='http://10.140.1.168:23340/v1', api_key='EMPTY'),
+# }
 
 
 
 gpt4_client = AzureOpenAI(
-    azure_endpoint='https://group-ck.openai.azure.com',
-    api_key='3c3640c38eeb477192ad99b96fce26b4',
+    azure_endpoint='',
+    api_key='',
     api_version='2024-02-01'
 )
+server_mapping = {
+    # 'S_Ampere_7B_s2_wo_mt_hf': OpenAI(base_url='http://10.140.1.168:23337/v1', api_key='EMPTY'),
+    # 'P-official_volc_Ampere_7B_v1_1_enhance_FT_v1_0_0_s1_rc47_s2_rl_320_hf': OpenAI(base_url='http://10.140.1.168:23335/v1', api_key='EMPTY'),
+    # 'S_Ampere_7B_s2_hf': OpenAI(base_url='http://10.140.1.168:23334/v1', api_key='EMPTY'),
+    # 'aliyun_Ampere_7B_v1_1_enchance_FT_v1_0_0_s1_rc47_s2_156_hf': OpenAI(base_url='http://10.140.1.168:23334/v1', api_key='EMPTY'),
+    'gpt4': gpt4_client,
+}
 
 
 class KeyPool:
@@ -162,12 +169,23 @@ def create_generate():
             print("Prompt:", prompt)
             print("=" * 50)
         model = model_name
-        trial = 20
+        trial = 999
         for i in range(trial):
             try:
                 start_time = time()
                 used_time = None
-                if model_name in server_mapping.keys():
+                if model_name == 'gpt4' or model_name not in server_mapping:
+                    if isinstance(prompt, str) and prompt:
+                        messages = [{"role": "user", "content": prompt}]
+                    completion = gpt4_client.chat.completions.create(
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        model='',
+                        temperature=temperature,
+                        top_p=top_p,
+                        seed=seed,
+                    )
+                else:
                     client = server_mapping[model_name]
                     completion = client.chat.completions.create(
                         model='internlm2-chat',
@@ -179,19 +197,8 @@ def create_generate():
                         seed=seed,
                         top_p=top_p,
                     )
-                else:
-                    if isinstance(prompt, str) and prompt:
-                        messages = [{"role": "user", "content": prompt}]
-                    completion = gpt4_client.chat.completions.create(
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        model='CK1',
-                        temperature=temperature,
-                        top_p=top_p,
-                        seed=seed,
-                    )
             except Exception as e:
-                raise e
+                print(f'Failed {i} times for {e}')
             else:
                 prompt_len = completion.usage.prompt_tokens
                 num_output_tokens = completion.usage.completion_tokens

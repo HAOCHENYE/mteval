@@ -636,15 +636,16 @@ def extract_evaluation(
         "follow-up_multi",
         "follow-up_multi_gold",
     ],
+    model_name
 ):
     raw_results = []
-    folder = os.path.join(EVALUATION_OUTPUT, task_name.split("_")[0])
+    folder = os.path.join(EVALUATION_OUTPUT, model_name, task_name.split("_")[0])
     n_errors = 0
     if not os.path.isdir(folder):
         logger.info(f"GPT-4 evaluations not found in `{folder}`.")
     for f in os.listdir(folder):
         model = f.split("_")[-1].split(".")[0]
-        expected_fn = f"{task_name.split('_', 1)[1]}_{model}.jsonl"
+        expected_fn = f"multi.jsonl"
         if not f.endswith(".jsonl") or f != expected_fn:
             continue
         # single and multi
@@ -664,7 +665,7 @@ def extract_evaluation(
                 else:
                     raw_results.append(
                         {
-                            "model": model,
+                            "model": model_name,
                             "task": task_name,
                             "turn": row["turn"],
                             "score": int(row["gen_resp"]["Score"]),
@@ -697,8 +698,8 @@ def _remove_punctuations_and_lowercase(data):
     return data
 
 
-def evaluate_recollection_cls():
-    folder = os.path.join(INFERENCE_OUTPUT, "recollection")
+def evaluate_recollection_cls(model_name):
+    folder = os.path.join(INFERENCE_OUTPUT, model_name, "recollection")
     raw_results = []
     for f in os.listdir(folder):
         if not f.endswith(".jsonl") or "cls" not in f:
@@ -723,7 +724,7 @@ def evaluate_recollection_cls():
                 score = turn["sys"] in turn["gen_resp"]
                 raw_results.append(
                     {
-                        "model": model,
+                        "model": model_name,
                         "task": task_name,
                         "turn": resp_turn_i,
                         "score": int(score) * 10,
@@ -733,8 +734,8 @@ def evaluate_recollection_cls():
     return raw_results
 
 
-def evaluate_recollection_cls_ablation():
-    folder = os.path.join(INFERENCE_OUTPUT, "cls_ablation")
+def evaluate_recollection_cls_ablation(model_name):
+    folder = os.path.join(INFERENCE_OUTPUT, model_name, "cls_ablation")
     raw_results = []
     for f in os.listdir(folder):
         if not f.endswith(".jsonl"):
@@ -769,8 +770,8 @@ def evaluate_recollection_cls_ablation():
     return raw_results
 
 
-def evaluate_recollection_global_inst():
-    folder = os.path.join(INFERENCE_OUTPUT, "recollection")
+def evaluate_recollection_global_inst(model_name):
+    folder = os.path.join(INFERENCE_OUTPUT, model_name, "recollection")
     raw_results = []
     for f in os.listdir(folder):
         if not f.endswith(".jsonl") or "global-inst" not in f:
@@ -794,7 +795,7 @@ def evaluate_recollection_global_inst():
                 score: bool = inst_obj.check_following(turn["gen_resp"])
                 raw_results.append(
                     {
-                        "model": model,
+                        "model": model_name,
                         "task": task_name,
                         "turn": resp_turn_i,
                         "score": int(score) * 10,
@@ -912,27 +913,27 @@ def cls_ablation(df: pd.DataFrame, tablefmt: str) -> str:
     )
 
 
-def main():
+def main(model_name):
     tasks = [
-        "refinement_single",
+        # "refinement_single",
         "refinement_multi",
-        "refinement_multi_gold",
-        "expansion_single",
+        # "refinement_multi_gold",
+        # "expansion_single",
         "expansion_multi",
-        "expansion_multi_gold",
-        "follow-up_single",
+        # "expansion_multi_gold",
+        # "follow-up_single",
         "follow-up_multi",
-        "follow-up_multi_gold",
+        # "follow-up_multi_gold",
     ]
     raw_results = []
     for task in tasks:
-        raw_results += extract_evaluation(task)
-    raw_results += evaluate_recollection_cls()
-    raw_results += evaluate_recollection_global_inst()
-    raw_results += evaluate_recollection_cls_ablation()
+        raw_results += extract_evaluation(task, model_name)
+    raw_results += evaluate_recollection_cls(model_name)
+    raw_results += evaluate_recollection_global_inst(model_name)
+    # raw_results += evaluate_recollection_cls_ablation()
 
     df = pd.DataFrame(raw_results)
-    df_path = os.path.join(RESULT_OUTPUT, "raw_result.csv")
+    df_path = os.path.join(RESULT_OUTPUT, f"{model_name}_raw_result.csv")
     os.makedirs(os.path.dirname(df_path), exist_ok=True)
     df.to_csv(df_path, index=False, header=True)
     logger.info(f"Raw result saved to {df_path}")
@@ -970,7 +971,7 @@ def main():
         markdown_output += cls_ablation(df=df, tablefmt="github")
         markdown_output += "\n\n"
 
-    table_filename = os.path.join(RESULT_OUTPUT, "result.md")
+    table_filename = os.path.join(RESULT_OUTPUT, f"{model_name}_result.md")
     with open(table_filename, "w") as f:
         f.write(markdown_output)
     logger.info(f"The tables of results are saved to {table_filename}")
